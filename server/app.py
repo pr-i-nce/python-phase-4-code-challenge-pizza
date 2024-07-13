@@ -5,6 +5,7 @@ from flask_migrate import Migrate
 from flask_restful import Api, Resource
 import os
 
+# Import models
 from models import db, Restaurant, RestaurantPizza, Pizza
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -27,7 +28,7 @@ def index():
 
 class Restaurants(Resource):
     def get(self):
-        response_dict_list = [restaurant.to_dict() for restaurant in Restaurant.query.all()]
+        response_dict_list = [restaurant.to_dict(rules=('-restaurant_pizzas',)) for restaurant in Restaurant.query.all()]
         return make_response(jsonify(response_dict_list), 200)
 
 
@@ -35,21 +36,21 @@ class RestaurantByID(Resource):
     def get(self, id):
         restaurant = Restaurant.query.filter_by(id=id).first()
         if restaurant:
-            return make_response(jsonify(restaurant.to_dict()), 200)
-        return make_response(jsonify({"error": "restaurant not found"}), 404)
+            return make_response(jsonify(restaurant.to_dict(rules=('-restaurant_pizzas',))), 200)
+        return make_response(jsonify({"error": "Restaurant not found"}), 404)
 
     def delete(self, id):
         restaurant = Restaurant.query.filter_by(id=id).first()
         if restaurant:
             db.session.delete(restaurant)
             db.session.commit()
-            return make_response(jsonify({"message": "record successfully deleted"}), 200)
-        return make_response(jsonify({"error": "restaurant not found"}), 404)
+            return make_response(jsonify({"message": "record successfully deleted"}), 204)
+        return make_response(jsonify({"error": "Restaurant not found"}), 404)
 
 
 class Pizzas(Resource):
     def get(self):
-        response_dict_list = [pizza.to_dict() for pizza in Pizza.query.all()]
+        response_dict_list = [pizza.to_dict(rules=('-restaurant_pizzas',)) for pizza in Pizza.query.all()]
         return make_response(jsonify(response_dict_list), 200)
 
 
@@ -72,7 +73,7 @@ class RestaurantPizzas(Resource):
             
             return make_response(jsonify(response), 201)
         except Exception as e:
-            return make_response(jsonify({"errors": [str(e)]}), 400)
+            return make_response(jsonify({"errors": ["Price must be between 1 and 30"]}), 400)
 
 
 api.add_resource(Restaurants, "/restaurants")
