@@ -58,6 +58,9 @@ class RestaurantPizzas(Resource):
     def post(self):
         data = request.get_json()
         try:
+            if data["price"] < 1 or data["price"] > 30:
+                raise ValueError("Price must be between 1 and 30")
+
             new_record = RestaurantPizza(
                 price=data["price"],
                 restaurant_id=data["restaurant_id"],
@@ -72,8 +75,10 @@ class RestaurantPizzas(Resource):
             response['restaurant'] = new_record.restaurant.to_dict(only=('id', 'name', 'address'))
             
             return make_response(jsonify(response), 201)
+        except ValueError as e:
+            return make_response(jsonify({"errors": ["validation errors"]}), 400)
         except Exception as e:
-            return make_response(jsonify({"errors": ["Price must be between 1 and 30"]}), 400)
+            return make_response(jsonify({"errors": [str(e)]}), 400)
 
 
 api.add_resource(Restaurants, "/restaurants")
