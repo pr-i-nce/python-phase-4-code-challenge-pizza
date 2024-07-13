@@ -1,87 +1,84 @@
-#!/usr/bin/env python3
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import MetaData
+from sqlalchemy.orm import validates
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy_serializer import SerializerMixin
 
-from flask import Flask, request, make_response, jsonify
-from flask_migrate import Migrate
-from flask_restful import Api, Resource
-import os
+metadata = MetaData(
+    naming_convention={
+        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    }
+)
 
-from models import db, Restaurant, RestaurantPizza, Pizza
-
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DATABASE = os.environ.get("DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}")
-
-app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.json.compact = False
-
-migrate = Migrate(app, db)
-db.init_app(app)
-api = Api(app)
+db = SQLAlchemy(metadata=metadata)
 
 
-@app.route("/")
-def index():
-    return "<h1>Code challenge</h1>"
+class Restaurant(db.Model, SerializerMixin):
+    __tablename__ = "restaurants"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+    address = db.Column(db.String, nullable=False)
+
+    # relationship with RestaurantPizza
+    restaurant_pizzas = db.relationship(
+        'RestaurantPizza', back_populates='restaurant', cascade='all, delete-orphan'
+    )
+
+    # proxy to easily access pizzas through RestaurantPizza
+    pizzas = association_proxy('restaurant_pizzas', 'pizza')
+
+    # serialization rules
+    serialize_rules = ('-restaurant_pizzas.restaurant', '-pizzas.restaurants')
+
+    def __repr__(self):
+        return f"<Restaurant {self.name}>"
 
 
-class Restaurants(Resource):
-    def get(self):
-        restaurants = Restaurant.query.all()
-        response_dict_list = [restaurant.to_dict() for restaurant in restaurants]
-        return make_response(jsonify(response_dict_list), 200)
+class Pizza(db.Model, SerializerMixin):
+    __tablename__ = "pizzas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+    ingredients = db.Column(db.String, nullable=False)
+
+    # relationship with RestaurantPizza
+    restaurant_pizzas = db.relationship(
+        'RestaurantPizza', back_populates='pizza', cascade='all, delete-orphan'
+    )
+
+    # proxy to easily access restaurants through RestaurantPizza
+    restaurants = association_proxy('restaurant_pizzas', 'restaurant')
+
+    # serialization rules
+    serialize_rules = ('-restaurant_pizzas.pizza', '-restaurants.pizzas')
+
+    def __repr__(self):
+        return f"<Pizza {self.name}, {self.ingredients}>"
 
 
-class RestaurantByID(Resource):
-    def get(self, id):
-        restaurant = Restaurant.query.filter_by(id=id).first()
-        if restaurant:
-            return make_response(jsonify(restaurant.to_dict()), 200)
-        return make_response(jsonify({"error": "restaurant not found"}), 404)
+class RestaurantPizza(db.Model, SerializerMixin):
+    __tablename__ = "restaurant_pizzas"
 
-    def delete(self, id):
-        restaurant = Restaurant.query.filter_by(id=id).first()
-        if restaurant:
-            db.session.delete(restaurant)
-            db.session.commit()
-            return make_response(jsonify({"message": "record successfully deleted"}), 200)
-        return make_response(jsonify({"error": "restaurant not found"}), 404)
+    id = db.Column(db.Integer, primary_key=True)
+    price = db.Column(db.Integer, nullable=False)
 
+    # relationships
+    restaurant_id = db.Column(db.Integer, db.ForeignKey('restaurants.id'), nullable=False)
+    pizza_id = db.Column(db.Integer, db.ForeignKey('pizzas.id'), nullable=False)
 
-class Pizzas(Resource):
-    def get(self):
-        pizzas = Pizza.query.all()
-        response_dict_list = [pizza.to_dict() for pizza in pizzas]
-        return make_response(jsonify(response_dict_list), 200)
+    restaurant = db.relationship('Restaurant', back_populates='restaurant_pizzas')
+    pizza = db.relationship('Pizza', back_populates='restaurant_pizzas')
+
+ 
+    serialize_rules = ('-restaurant.restaurant_pizzas', '-pizza.restaurant_pizzas')
 
 
-class RestaurantPizzas(Resource):
-    def post(self):
-        data = request.get_json()
-        try:
-            new_record = RestaurantPizza(
-                price=data["price"],
-                restaurant_id=data["restaurant_id"],
-                pizza_id=data["pizza_id"]
-            )
+    @validates('price')
+    def validate_price(self, key, price):
+        if float(price) < 1 or float(price) > 30:
+            raise ValueError("Price must be between 1 and 30")
+        return price
 
-            db.session.add(new_record)
-            db.session.commit()
-            
-            response = new_record.to_dict()
-            response['pizza'] = new_record.pizza.to_dict(only=('id', 'name', 'ingredients'))
-            response['restaurant'] = new_record.restaurant.to_dict(only=('id', 'name', 'address'))
-            
-            return make_response(jsonify(response), 201)
-        except Exception as e:
-            return make_response(jsonify({"errors": [str(e)]}), 400)
-
-
-api.add_resource(Restaurants, "/restaurants")
-api.add_resource(RestaurantByID, "/restaurants/<int:id>")
-api.add_resource(Pizzas, "/pizzas")
-api.add_resource(RestaurantPizzas, "/restaurant_pizzas")
-
-
-if __name__ == "__main__":
-    app.run(port=5555, debug=True)
+    def __repr__(self):
+        return f"<RestaurantPizza ${self.price}>"
